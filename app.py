@@ -7,24 +7,18 @@ from datetime import datetime
 # 1. КОНФИГУРАЦИЯ
 st.set_page_config(page_title="Sovereign Bridge", layout="wide")
 
-# 2. API КЛЮЧ И ФИКС 404 (Явно указываем v1)
+# 2. API КЛЮЧ
 API_KEY = "AIzaSyCX69CN_OSfdjT-WlPeF3-g50Y4d3NMDdc"
-
-# Хак для обхода ошибки 404 и версии v1beta
-genai.configure(api_key=API_KEY, transport='rest') # Используем REST транспорт для стабильности
+genai.configure(api_key=API_KEY)
 
 # 3. БАЗА ДАННЫХ
 @st.cache_resource
 def get_db_connection():
     conn = sqlite3.connect("l0_memory.db", check_same_thread=False)
-    # Если база кривая — сносим и создаем заново, чтобы не было ошибок по колонкам
-    try:
-        conn.execute("SELECT atom_id, content, msg_id, tenant_id, timestamp, entropy FROM memory LIMIT 1")
-    except:
-        conn.execute("DROP TABLE IF EXISTS memory")
-        conn.execute("""CREATE TABLE memory 
-            (atom_id TEXT PRIMARY KEY, content TEXT, msg_id TEXT, 
-             tenant_id TEXT, timestamp DATETIME, entropy REAL)""")
+    conn.execute("DROP TABLE IF EXISTS memory") # Сносим нахрен старое, чтобы не было конфликтов
+    conn.execute("""CREATE TABLE memory 
+        (atom_id TEXT PRIMARY KEY, content TEXT, msg_id TEXT, 
+         tenant_id TEXT, timestamp DATETIME, entropy REAL)""")
     conn.commit()
     return conn
 
@@ -35,7 +29,7 @@ if 'chat_history' not in st.session_state:
     st.session_state.chat_history = []
 
 # 5. ИНТЕРФЕЙС
-st.title("🧬 SOVEREIGN BRIDGE v1.6")
+st.title("🧬 SOVEREIGN BRIDGE v1.7 (PRO-STABLE)")
 
 for msg in st.session_state.chat_history:
     with st.chat_message(msg["role"]):
@@ -48,29 +42,20 @@ if prompt := st.chat_input("Твой импульс..."):
         st.write(prompt)
     
     # Сохранение
-    try:
-        atom_id = hashlib.md5(prompt.encode()).hexdigest()
-        ts = datetime.now().isoformat()
-        db.execute("INSERT OR IGNORE INTO memory VALUES (?, ?, ?, ?, ?, ?)", 
-                   (atom_id, prompt, "msg", "Melnik", ts, 0.0))
-        db.commit()
-    except Exception as e:
-        st.error(f"Ошибка памяти: {e}")
+    atom_id = hashlib.md5(prompt.encode()).hexdigest()
+    db.execute("INSERT OR IGNORE INTO memory VALUES (?, ?, ?, ?, ?, ?)", 
+               (atom_id, prompt, "msg", "Melnik", datetime.now().isoformat(), 0.0))
+    db.commit()
 
-    # ОТВЕТ AI
+    # ОТВЕТ AI (ТОЛЬКО GEMINI-PRO)
     with st.chat_message("assistant"):
         try:
-            # Используем gemini-pro если flash не отвечает (для подстраховки)
-            try:
-                model = genai.GenerativeModel('gemini-1.5-flash')
-                response = model.generate_content(f"Ты со-автор Мельника. Ответь: {prompt}")
-            except:
-                model = genai.GenerativeModel('gemini-pro')
-                response = model.generate_content(f"Ты со-автор Мельника. Ответь: {prompt}")
-            
+            # Используем САМУЮ стабильную модель в истории Google API
+            model = genai.GenerativeModel('gemini-pro') 
+            response = model.generate_content(prompt)
             reply = response.text
         except Exception as e:
-            reply = f"Ярость системы: {str(e)}. Мельник, попробуй еще раз через минуту или проверь ключ."
+            reply = f"Финальный сбой: {str(e)}. Мельник, если снова 404, значит Google AI Studio отклоняет твой ключ."
         
         st.write(reply)
         st.session_state.chat_history.append({"role": "assistant", "content": reply})
