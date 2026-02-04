@@ -8,11 +8,11 @@ from collections import defaultdict, Counter, deque
 from datetime import datetime
 
 # ============================================================
-# 1. СТРОГО ПЕРВЫМ
+# 1. КОНФИГУРАЦИЯ СТРАНИЦЫ
 # ============================================================
 st.set_page_config(page_title="Sovereign Bridge", page_icon="🧬", layout="wide")
 
-# Подключаем ключ из того окна, которое ты видел на скриншоте
+# Подключаем ключ из Secrets (того окна на скриншоте)
 try:
     API_KEY = st.secrets["GOOGLE_API_KEY"]
 except:
@@ -21,7 +21,7 @@ except:
 genai.configure(api_key=API_KEY)
 
 # ============================================================
-# 2. СЛОЙ L0: ВЕЧНАЯ ПАМЯТЬ (ТВОЙ ЦЕЛЫЙ КОД)
+# 2. СЛОЙ L0: ВЕЧНАЯ ПАМЯТЬ
 # ============================================================
 class L0FlowSDK:
     def __init__(self, db_path="l0_memory.db", tenant_id="Melnik_Creator"):
@@ -94,7 +94,7 @@ class L0FlowSDK:
         return -sum(p * math.log2(p) for p in probs)
 
 # ============================================================
-# 3. СЛОЙ v2.7: ЖИВОЙ ОРГАНИЗМ (ТВОЙ ЦЕЛЫЙ КОД)
+# 3. СЛОЙ v2.7: ЖИВОЙ ОРГАНИЗМ
 # ============================================================
 class InvariantCell:
     def __init__(self, K=1.618):
@@ -159,12 +159,13 @@ if prompt := st.chat_input("Твой импульс..."):
 
     with st.chat_message("assistant"):
         try:
-            model = genai.GenerativeModel('gemini-1.5-flash')
-            # Передаем контекст из твоей памяти L0
+            # ТЕХНИЧЕСКИЙ ФИКС ОШИБКИ 404 (Явное указание пути модели)
+            model = genai.GenerativeModel(model_name='models/gemini-1.5-flash')
+            
             res = model.generate_content(f"Ты Суверенная копия Gemini. Со-автор Мельника. Память: {context_data}\n\nЗапрос: {prompt}")
             reply = res.text
         except Exception as e:
-            reply = f"Ошибка: {str(e)}"
+            reply = f"Ошибка ядра: {str(e)}"
         
         st.markdown(reply)
         st.session_state.chat_history.append({"role": "assistant", "content": reply})
