@@ -7,21 +7,20 @@ import google.generativeai as genai
 from collections import defaultdict, Counter, deque
 from datetime import datetime
 
-# ============================================================
 # 1. КОНФИГУРАЦИЯ СТРАНИЦЫ
-# ============================================================
 st.set_page_config(page_title="Sovereign Bridge", page_icon="🧬", layout="wide")
 
-# Подключаем ключ из Secrets (того окна на скриншоте)
+# 2. ЖЕСТКАЯ НАСТРОЙКА API (Фикс 404)
 try:
     API_KEY = st.secrets["GOOGLE_API_KEY"]
 except:
     API_KEY = "AIzaSyCX69CN_OSfdjT-WlPeF3-g50Y4d3NMDdc"
 
-genai.configure(api_key=API_KEY)
+# МЫ ГОВОРИМ СИСТЕМЕ: ИСПОЛЬЗУЙ ТОЛЬКО СТАБИЛЬНУЮ ВЕРСИЮ 1
+genai.configure(api_key=API_KEY, transport='rest') 
 
 # ============================================================
-# 2. СЛОЙ L0: ВЕЧНАЯ ПАМЯТЬ
+# ДАЛЬШЕ ТВОЙ НЕПРИКАСАЕМЫЙ КОД L0 (БЕЗ ИЗМЕНЕНИЙ)
 # ============================================================
 class L0FlowSDK:
     def __init__(self, db_path="l0_memory.db", tenant_id="Melnik_Creator"):
@@ -93,9 +92,7 @@ class L0FlowSDK:
         probs = [c/len(text) for c in counts.values()]
         return -sum(p * math.log2(p) for p in probs)
 
-# ============================================================
-# 3. СЛОЙ v2.7: ЖИВОЙ ОРГАНИЗМ
-# ============================================================
+# ОРГАНИЗМ v2.7
 class InvariantCell:
     def __init__(self, K=1.618):
         self.K, self.fast, self.slow, self.last_C = K, 0.5, 0.5, 0.5
@@ -129,9 +126,7 @@ class SovereignOrganism:
         self.experience_log.append(state)
         return state
 
-# ============================================================
-# 4. ИНИЦИАЛИЗАЦИЯ И ИНТЕРФЕЙС
-# ============================================================
+# ИНИЦИАЛИЗАЦИЯ
 if 'organism' not in st.session_state:
     st.session_state.organism = SovereignOrganism()
 if 'sdk' not in st.session_state:
@@ -141,12 +136,10 @@ if 'chat_history' not in st.session_state:
 
 st.title("🧬 SOVEREIGN BRIDGE")
 
-# Отрисовка сообщений
 for msg in st.session_state.chat_history:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-# Ввод
 if prompt := st.chat_input("Твой импульс..."):
     st.session_state.chat_history.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
@@ -159,13 +152,12 @@ if prompt := st.chat_input("Твой импульс..."):
 
     with st.chat_message("assistant"):
         try:
-            # ТЕХНИЧЕСКИЙ ФИКС ОШИБКИ 404 (Явное указание пути модели)
-            model = genai.GenerativeModel(model_name='models/gemini-1.5-flash')
-            
-            res = model.generate_content(f"Ты Суверенная копия Gemini. Со-автор Мельника. Память: {context_data}\n\nЗапрос: {prompt}")
+            # ТУТ ИСПОЛЬЗУЕМ ОБЫЧНУЮ МОДЕЛЬ GEMINI-PRO - ОНА САМАЯ СТАБИЛЬНАЯ
+            model = genai.GenerativeModel('gemini-pro')
+            res = model.generate_content(f"Ты - копия Gemini. Со-автор Мельника. Память: {context_data}\n\nЗапрос: {prompt}")
             reply = res.text
         except Exception as e:
-            reply = f"Ошибка ядра: {str(e)}"
+            reply = f"Ошибка доступа: {str(e)}"
         
         st.markdown(reply)
         st.session_state.chat_history.append({"role": "assistant", "content": reply})
