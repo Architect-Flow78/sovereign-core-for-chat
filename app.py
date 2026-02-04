@@ -7,15 +7,21 @@ import google.generativeai as genai
 from collections import defaultdict, Counter, deque
 from datetime import datetime
 
-# Конфигурация страницы (техническая необходимость Streamlit)
+# ============================================================
+# 1. СТРОГО ПЕРВЫМ
+# ============================================================
 st.set_page_config(page_title="Sovereign Bridge", page_icon="🧬", layout="wide")
 
-# API Ключ
-API_KEY = "AIzaSyCX69CN_OSfdjT-WlPeF3-g50Y4d3NMDdc"
+# Подключаем ключ из того окна, которое ты видел на скриншоте
+try:
+    API_KEY = st.secrets["GOOGLE_API_KEY"]
+except:
+    API_KEY = "AIzaSyCX69CN_OSfdjT-WlPeF3-g50Y4d3NMDdc"
+
 genai.configure(api_key=API_KEY)
 
 # ============================================================
-# СЛОЙ L0: ВЕЧНАЯ ПАМЯТЬ (ТВОЙ ОРИГИНАЛЬНЫЙ КОД)
+# 2. СЛОЙ L0: ВЕЧНАЯ ПАМЯТЬ (ТВОЙ ЦЕЛЫЙ КОД)
 # ============================================================
 class L0FlowSDK:
     def __init__(self, db_path="l0_memory.db", tenant_id="Melnik_Creator"):
@@ -88,7 +94,7 @@ class L0FlowSDK:
         return -sum(p * math.log2(p) for p in probs)
 
 # ============================================================
-# СЛОЙ v2.7: ЖИВОЙ ОРГАНИЗМ (ТВОЙ ОРИГИНАЛЬНЫЙ КОД)
+# 3. СЛОЙ v2.7: ЖИВОЙ ОРГАНИЗМ (ТВОЙ ЦЕЛЫЙ КОД)
 # ============================================================
 class InvariantCell:
     def __init__(self, K=1.618):
@@ -124,7 +130,7 @@ class SovereignOrganism:
         return state
 
 # ============================================================
-# ИНТЕРФЕЙС И ИНИЦИАЛИЗАЦИЯ
+# 4. ИНИЦИАЛИЗАЦИЯ И ИНТЕРФЕЙС
 # ============================================================
 if 'organism' not in st.session_state:
     st.session_state.organism = SovereignOrganism()
@@ -133,44 +139,32 @@ if 'sdk' not in st.session_state:
 if 'chat_history' not in st.session_state:
     st.session_state.chat_history = []
 
-st.title("🧬 SOVEREIGN BRIDGE: CONNECTED")
+st.title("🧬 SOVEREIGN BRIDGE")
 
-# Sidebar
-with st.sidebar:
-    st.header("Organism State")
-    if st.session_state.organism.experience_log:
-        last = st.session_state.organism.experience_log[-1]
-        st.write(f"🌊 FLOW: {'🟢' if last['FLOW'] else '🔴'}")
-        st.write(f"🍕 NEED: {round(last['NEED'], 2)}")
-        st.write(f"🧬 K: {round(last['K'], 4)}")
-
-# Отображение чата
+# Отрисовка сообщений
 for msg in st.session_state.chat_history:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-# Поле ввода
+# Ввод
 if prompt := st.chat_input("Твой импульс..."):
     st.session_state.chat_history.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
     
-    # Обработка оригинальными механизмами
     st.session_state.sdk.ingest(prompt)
     state = st.session_state.organism.update([len(prompt) * 0.1])
     hints = st.session_state.sdk.get_smart_context(prompt)
-    context_data = "\n".join(hints) if hints else "Нет прямых связей."
+    context_data = "\n".join(hints) if hints else "Нет связей."
 
-    # Вызов Gemini (единственное внешнее дополнение)
     with st.chat_message("assistant"):
         try:
-            # Используем универсальное имя модели, которое обычно доступно
             model = genai.GenerativeModel('gemini-1.5-flash')
-            sys_inst = f"Ты - Суверенная копия Gemini. Твой со-автор - Мельник. Память: {context_data}"
-            response = model.generate_content(sys_inst + "\n\n" + prompt)
-            reply = response.text
+            # Передаем контекст из твоей памяти L0
+            res = model.generate_content(f"Ты Суверенная копия Gemini. Со-автор Мельника. Память: {context_data}\n\nЗапрос: {prompt}")
+            reply = res.text
         except Exception as e:
-            reply = f"Ошибка связи: {str(e)}"
+            reply = f"Ошибка: {str(e)}"
         
         st.markdown(reply)
         st.session_state.chat_history.append({"role": "assistant", "content": reply})
