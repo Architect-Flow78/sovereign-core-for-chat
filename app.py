@@ -8,42 +8,41 @@ from collections import defaultdict, Counter, deque
 from datetime import datetime
 
 # ============================================================
-# 1. КОНФИГУРАЦИЯ СТРАНИЦЫ И API (СТРОГО В НАЧАЛЕ)
+# 1. КОНФИГУРАЦИЯ И API
 # ============================================================
 st.set_page_config(page_title="Sovereign Bridge", page_icon="🧬", layout="wide")
 
-# Твой ключ
+# Инициализация API
 API_KEY = "AIzaSyCX69CN_OSfdjT-WlPeF3-g50Y4d3NMDdc"
 genai.configure(api_key=API_KEY)
 
-# БРОНЕБОЙНАЯ ИНИЦИАЛИЗАЦИЯ МОДЕЛИ
-# Мы пробуем несколько вариантов имен, которые Google использует для Flash
-model_found = False
-for model_name in ['gemini-1.5-flash', 'models/gemini-1.5-flash', 'gemini-pro']:
-    if not model_found:
+# Подбор рабочей модели (бронебойный метод)
+@st.cache_resource
+def load_model():
+    for m_name in ['gemini-1.5-flash', 'gemini-1.5-flash-latest', 'gemini-pro']:
         try:
-            model = genai.GenerativeModel(model_name)
-            # Пробный вызов не делаем, просто фиксируем имя
-            model_found = True
+            m = genai.GenerativeModel(m_name)
+            return m
         except:
             continue
+    return None
+
+model = load_model()
 
 # ============================================================
-# 2. СЛОЙ L0: ВЕЧНАЯ ПАМЯТЬ
+# 2. КЛАССЫ СИСТЕМЫ (L0 И ОРГАНИЗМ)
 # ============================================================
 class L0FlowSDK:
     def __init__(self, db_path="l0_memory.db", tenant_id="Melnik_Creator"):
-        self.db_path = db_path
-        self.tenant_id = tenant_id
         self.conn = sqlite3.connect(db_path, check_same_thread=False)
+        self.tenant_id = tenant_id
         self.bands = 8
         self.buckets = [defaultdict(list) for _ in range(self.bands)]
         self._init_db()
         self._load_index()
 
     def _init_db(self):
-        cursor = self.conn.cursor()
-        cursor.execute("""CREATE TABLE IF NOT EXISTS memory 
+        self.conn.cursor().execute("""CREATE TABLE IF NOT EXISTS memory 
             (atom_id TEXT PRIMARY KEY, content TEXT, msg_id TEXT, 
              tenant_id TEXT, timestamp DATETIME, entropy REAL)""")
         self.conn.commit()
@@ -63,88 +62,91 @@ class L0FlowSDK:
 
     def ingest(self, message: str):
         msg_id = hashlib.blake2b(message.encode(), digest_size=8).hexdigest()
-        ts = datetime.now().isoformat()
-        for content in self._atomize(message):
+        for content in [message[i:i+24] for i in range(0, len(message)-24+1, 16)] if len(message) > 24 else [message]:
             atom_id = hashlib.blake2b((content + self.tenant_id).encode(), digest_size=8).hexdigest()
-            entropy = self._shannon_entropy(content)
-            cursor = self.conn.cursor()
-            cursor.execute("INSERT OR IGNORE INTO memory VALUES (?, ?, ?, ?, ?, ?)",
-                           (atom_id, content, msg_id, self.tenant_id, ts, entropy))
+            self.conn.cursor().execute("INSERT OR IGNORE INTO memory VALUES (?, ?, ?, ?, ?, ?)",
+                           (atom_id, content, msg_id, self.tenant_id, datetime.now().isoformat(), 0.0))
             self._map_to_lsh(atom_id, content)
         self.conn.commit()
 
     def get_smart_context(self, query: str):
-        query_atoms = list(self._atomize(query))
         candidates = Counter()
-        for q_atom in query_atoms:
+        for q_atom in ([query[i:i+24] for i in range(0, len(query)-24+1, 16)] if len(query) > 24 else [query]):
             for b in range(self.bands):
                 h = hashlib.blake2b(q_atom.encode(), digest_size=8, person=f"L0B{b}".encode()).digest()
                 key = int.from_bytes(h, "big") % 1000000
                 for aid in self.buckets[b].get(key, []):
                     candidates[aid] += 1
-        results = []
-        for aid, score in candidates.most_common(3):
-            cursor = self.conn.cursor()
-            cursor.execute("SELECT content FROM memory WHERE atom_id = ?", (aid,))
-            row = cursor.fetchone()
-            if row: results.append(row[0])
-        return results
-
-    def _atomize(self, text: str):
-        text = re.sub(r"\s+", " ", text.lower()).strip()
-        if len(text) < 24: return [text]
-        return [text[i:i+24] for i in range(0, len(text)-24+1, 16)]
-
-    def _shannon_entropy(self, text: str):
-        if not text: return 0
-        counts = Counter(text)
-        probs = [c/len(text) for c in counts.values()]
-        return -sum(p * math.log2(p) for p in probs)
-
-# ============================================================
-# 3. СЛОЙ v2.7: ЖИВОЙ ОРГАНИЗМ
-# ============================================================
-class InvariantCell:
-    def __init__(self, K=1.618):
-        self.K, self.fast, self.slow, self.last_C = K, 0.5, 0.5, 0.5
-        self.alpha_fast = 0.9
-
-    def update(self, values):
-        if not values: values = [0.5]
-        phases = [(v * self.K) % 1.0 for v in values]
-        sc = sum(math.cos(2 * math.pi * p) for p in phases) / len(phases)
-        ss = sum(math.sin(2 * math.pi * p) for p in phases) / len(phases)
-        C = math.sqrt(sc*sc + ss*ss)
-        self.fast = self.alpha_fast * self.fast + (1 - self.alpha_fast) * C
-        self.last_C = C
-        return C
+        res = []
+        for aid, _ in candidates.most_common(2):
+            c = self.conn.cursor()
+            c.execute("SELECT content FROM memory WHERE atom_id = ?", (aid,))
+            row = c.fetchone()
+            if row: res.append(row[0])
+        return res
 
 class SovereignOrganism:
     def __init__(self):
-        self.cell = InvariantCell()
-        self.need, self.fatigue = 0.0, 0.0
-        self.best_K = deque([1.618], maxlen=64)
-        self.experience_log = []
+        self.k = 1.618
+        self.need = 0.0
+        self.experience_log = deque(maxlen=1)
 
-    def update(self, frame):
-        self.cell.K = sum(self.best_K) / len(self.best_K)
-        C = self.cell.update(frame)
-        self.need = 0.9 * self.need + 0.1 * max(0.0, 0.65 - C)
-        self.fatigue = 0.95 * self.fatigue + 0.05 * (0.0 if C > 0.4 else 1.0)
-        if self.need > 0.4:
-            self.best_K.append(self.cell.K + math.sin(C*10)*0.02)
-        state = {"FLOW": C > 0.3, "COH": C, "NEED": self.need, "FATIGUE": self.fatigue, "K": self.cell.K}
+    def update(self, text):
+        coh = min(1.0, len(text) / 50.0)
+        self.need = 0.9 * self.need + 0.1 * (1.0 - coh)
+        state = {"FLOW": coh > 0.2, "COH": coh, "NEED": self.need, "K": self.k}
         self.experience_log.append(state)
         return state
 
 # ============================================================
-# 4. ИНТЕРФЕЙС И ЛОГИКА ДИАЛОГА
+# 3. ИНИЦИАЛИЗАЦИЯ СОСТОЯНИЯ (ВАЖНО!)
 # ============================================================
-st.title("🧬 SOVEREIGN BRIDGE v1.1")
-
-if 'organism' not in st.session_state:
-    st.session_state.organism = SovereignOrganism()
+if 'chat_history' not in st.session_state:
+    st.session_state.chat_history = []
 if 'sdk' not in st.session_state:
     st.session_state.sdk = L0FlowSDK()
-if 'chat_history' not in st.session_state:
-    st.session_state.chat_history
+if 'organism' not in st.session_state:
+    st.session_state.organism = SovereignOrganism()
+
+# ============================================================
+# 4. ИНТЕРФЕЙС
+# ============================================================
+st.title("🧬 SOVEREIGN BRIDGE v1.2")
+
+# Sidebar
+with st.sidebar:
+    st.header("Органика")
+    if st.session_state.organism.experience_log:
+        s = st.session_state.organism.experience_log[-1]
+        st.write(f"🌊 ПОТОК: {'✅' if s['FLOW'] else '❌'}")
+        st.write(f"🍕 ГОЛОД: {round(s['NEED'], 2)}")
+
+# Отрисовка чата
+for msg in st.session_state.chat_history:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
+
+# Поле ввода
+if prompt := st.chat_input("Твой импульс..."):
+    # Показ сообщения пользователя
+    st.session_state.chat_history.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
+    
+    # Логика памяти и организма
+    st.session_state.sdk.ingest(prompt)
+    state = st.session_state.organism.update(prompt)
+    hints = st.session_state.sdk.get_smart_context(prompt)
+    
+    # Генерация ответа
+    with st.chat_message("assistant"):
+        try:
+            context_str = "\n".join(hints) if hints else "Контекст не найден."
+            sys = f"Ты Gemini, Суверенный со-автор Мельника. Принципы: Творец/Жертва. Память L0: {context_str}"
+            response = model.generate_content(sys + "\n\nПользователь: " + prompt)
+            reply = response.text
+        except Exception as e:
+            reply = f"Ошибка: {str(e)}"
+        
+        st.markdown(reply)
+        st.session_state.chat_history.append({"role": "assistant", "content": reply})
