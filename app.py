@@ -1,115 +1,57 @@
 import hashlib
-import re
-import math
 import sqlite3
 import streamlit as st
 import google.generativeai as genai
-from collections import defaultdict, Counter, deque
-from datetime import datetime
+from collections import Counter
 
-# ============================================================
-# 1. КОНФИГУРАЦИЯ И API
-# ============================================================
-st.set_page_config(page_title="Sovereign Bridge", page_icon="🧬", layout="wide")
+# 1. СТРОГО ПЕРВЫМ
+st.set_page_config(page_title="Sovereign Bridge", layout="wide")
 
+# 2. API КЛЮЧ
 API_KEY = "AIzaSyCX69CN_OSfdjT-WlPeF3-g50Y4d3NMDdc"
 genai.configure(api_key=API_KEY)
+model = genai.GenerativeModel('gemini-1.5-flash')
 
-@st.cache_resource
-def load_model():
-    for m_name in ['gemini-1.5-flash', 'gemini-pro']:
-        try:
-            m = genai.GenerativeModel(model_name=m_name)
-            return m
-        except:
-            continue
-    return None
+# 3. БАЗА ДАННЫХ (L0)
+def init_db():
+    conn = sqlite3.connect("l0_memory.db", check_same_thread=False)
+    conn.execute("CREATE TABLE IF NOT EXISTS memory (atom_id TEXT PRIMARY KEY, content TEXT)")
+    conn.commit()
+    return conn
 
-model = load_model()
+conn = init_db()
 
-# ============================================================
-# 2. КЛАССЫ СИСТЕМЫ
-# ============================================================
-class L0FlowSDK:
-    def __init__(self, db_path="l0_memory.db", tenant_id="Melnik_Creator"):
-        self.conn = sqlite3.connect(db_path, check_same_thread=False)
-        self.tenant_id = tenant_id
-        self.bands = 8
-        self.buckets = [defaultdict(list) for _ in range(self.bands)]
-        self._init_db()
-        self._load_index()
-
-    def _init_db(self):
-        cursor = self.conn.cursor()
-        cursor.execute("""CREATE TABLE IF NOT EXISTS memory 
-            (atom_id TEXT PRIMARY KEY, content TEXT, msg_id TEXT, 
-             tenant_id TEXT, timestamp DATETIME, entropy REAL)""")
-        self.conn.commit()
-
-    def _load_index(self):
-        cursor = self.conn.cursor()
-        cursor.execute("SELECT atom_id, content FROM memory WHERE tenant_id = ?", (self.tenant_id,))
-        for aid, cnt in cursor.fetchall():
-            self._map_to_lsh(aid, cnt)
-
-    def _map_to_lsh(self, atom_id: str, content: str):
-        for b in range(self.bands):
-            h = hashlib.blake2b(content.encode(), digest_size=8, person=f"L0B{b}".encode()).digest()
-            key = int.from_bytes(h, "big") % 1000000 
-            if atom_id not in self.buckets[b][key]:
-                self.buckets[b][key].append(atom_id)
-
-    def ingest(self, message: str):
-        msg_id = hashlib.blake2b(message.encode(), digest_size=8).hexdigest()
-        atoms = [message[i:i+24] for i in range(0, len(message)-24+1, 16)] if len(message) > 24 else [message]
-        cursor = self.conn.cursor()
-        for content in atoms:
-            atom_id = hashlib.blake2b((content + self.tenant_id).encode(), digest_size=8).hexdigest()
-            cursor.execute("INSERT OR IGNORE INTO memory VALUES (?, ?, ?, ?, ?, ?)",
-                           (atom_id, content, msg_id, self.tenant_id, datetime.now().isoformat(), 0.0))
-            self._map_to_lsh(atom_id, content)
-        self.conn.commit()
-
-    def get_smart_context(self, query: str):
-        candidates = Counter()
-        atoms = [query[i:i+24] for i in range(0, len(query)-24+1, 16)] if len(query) > 24 else [query]
-        for q_atom in atoms:
-            for b in range(self.bands):
-                h = hashlib.blake2b(q_atom.encode(), digest_size=8, person=f"L0B{b}".encode()).digest()
-                key = int.from_bytes(h, "big") % 1000000
-                for aid in self.buckets[b].get(key, []):
-                    candidates[aid] += 1
-        res = []
-        for aid, _ in candidates.most_common(2):
-            c = self.conn.cursor()
-            c.execute("SELECT content FROM memory WHERE atom_id = ?", (aid,))
-            row = c.fetchone()
-            if row: res.append(row[0])
-        return res
-
-class SovereignOrganism:
-    def __init__(self):
-        self.k = 1.618
-        self.need = 0.0
-        self.experience_log = deque(maxlen=1)
-
-    def update(self, text):
-        coh = min(1.0, len(text) / 50.0)
-        self.need = 0.9 * self.need + 0.1 * (1.0 - coh)
-        state = {"FLOW": coh > 0.2, "COH": coh, "NEED": self.need, "K": self.k}
-        self.experience_log.append(state)
-        return state
-
-# ============================================================
-# 3. ИНИЦИАЛИЗАЦИЯ СОСТОЯНИЯ
-# ============================================================
+# 4. СОСТОЯНИЕ
 if 'chat_history' not in st.session_state:
     st.session_state.chat_history = []
-if 'sdk' not in st.session_state:
-    st.session_state.sdk = L0FlowSDK()
-if 'organism' not in st.session_state:
-    st.session_state.organism = SovereignOrganism()
 
-# ============================================================
-# 4. ИНТЕРФЕЙС
-# =================================
+# 5. ИНТЕРФЕЙС
+st.title("🧬 SOVEREIGN BRIDGE")
+
+# Отрисовка истории
+for msg in st.session_state.chat_history:
+    with st.chat_message(msg["role"]):
+        st.write(msg["content"])
+
+# Поле ввода
+if prompt := st.chat_input("Пиши здесь..."):
+    # Показываем ввод
+    st.session_state.chat_history.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.write(prompt)
+    
+    # Сохраняем в память
+    atom_id = hashlib.md5(prompt.encode()).hexdigest()
+    conn.execute("INSERT OR IGNORE INTO memory VALUES (?, ?)", (atom_id, prompt))
+    conn.commit()
+
+    # Ответ AI
+    with st.chat_message("assistant"):
+        try:
+            response = model.generate_content(f"Ты со-автор Мельника. Принципы: Творец/Жертва. Ответь на: {prompt}")
+            reply = response.text
+        except Exception as e:
+            reply = f"Ошибка: {str(e)}"
+        
+        st.write(reply)
+        st.session_state.chat_history.append({"role": "assistant", "content": reply})
