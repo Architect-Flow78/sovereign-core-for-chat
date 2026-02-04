@@ -12,13 +12,11 @@ from datetime import datetime
 # ============================================================
 st.set_page_config(page_title="Sovereign Bridge", page_icon="🧬", layout="wide")
 
-# Инициализация API
 API_KEY = "AIzaSyCX69CN_OSfdjT-WlPeF3-g50Y4d3NMDdc"
 genai.configure(api_key=API_KEY)
 
 @st.cache_resource
 def load_model():
-    # Список имен моделей для перебора в случае 404
     for m_name in ['gemini-1.5-flash', 'gemini-pro']:
         try:
             m = genai.GenerativeModel(model_name=m_name)
@@ -42,7 +40,8 @@ class L0FlowSDK:
         self._load_index()
 
     def _init_db(self):
-        self.conn.cursor().execute("""CREATE TABLE IF NOT EXISTS memory 
+        cursor = self.conn.cursor()
+        cursor.execute("""CREATE TABLE IF NOT EXISTS memory 
             (atom_id TEXT PRIMARY KEY, content TEXT, msg_id TEXT, 
              tenant_id TEXT, timestamp DATETIME, entropy REAL)""")
         self.conn.commit()
@@ -63,7 +62,54 @@ class L0FlowSDK:
     def ingest(self, message: str):
         msg_id = hashlib.blake2b(message.encode(), digest_size=8).hexdigest()
         atoms = [message[i:i+24] for i in range(0, len(message)-24+1, 16)] if len(message) > 24 else [message]
+        cursor = self.conn.cursor()
         for content in atoms:
             atom_id = hashlib.blake2b((content + self.tenant_id).encode(), digest_size=8).hexdigest()
-            self.conn.cursor().execute("INSERT OR IGNORE INTO memory VALUES (?, ?, ?, ?, ?, ?)",
-                           (atom_id
+            cursor.execute("INSERT OR IGNORE INTO memory VALUES (?, ?, ?, ?, ?, ?)",
+                           (atom_id, content, msg_id, self.tenant_id, datetime.now().isoformat(), 0.0))
+            self._map_to_lsh(atom_id, content)
+        self.conn.commit()
+
+    def get_smart_context(self, query: str):
+        candidates = Counter()
+        atoms = [query[i:i+24] for i in range(0, len(query)-24+1, 16)] if len(query) > 24 else [query]
+        for q_atom in atoms:
+            for b in range(self.bands):
+                h = hashlib.blake2b(q_atom.encode(), digest_size=8, person=f"L0B{b}".encode()).digest()
+                key = int.from_bytes(h, "big") % 1000000
+                for aid in self.buckets[b].get(key, []):
+                    candidates[aid] += 1
+        res = []
+        for aid, _ in candidates.most_common(2):
+            c = self.conn.cursor()
+            c.execute("SELECT content FROM memory WHERE atom_id = ?", (aid,))
+            row = c.fetchone()
+            if row: res.append(row[0])
+        return res
+
+class SovereignOrganism:
+    def __init__(self):
+        self.k = 1.618
+        self.need = 0.0
+        self.experience_log = deque(maxlen=1)
+
+    def update(self, text):
+        coh = min(1.0, len(text) / 50.0)
+        self.need = 0.9 * self.need + 0.1 * (1.0 - coh)
+        state = {"FLOW": coh > 0.2, "COH": coh, "NEED": self.need, "K": self.k}
+        self.experience_log.append(state)
+        return state
+
+# ============================================================
+# 3. ИНИЦИАЛИЗАЦИЯ СОСТОЯНИЯ
+# ============================================================
+if 'chat_history' not in st.session_state:
+    st.session_state.chat_history = []
+if 'sdk' not in st.session_state:
+    st.session_state.sdk = L0FlowSDK()
+if 'organism' not in st.session_state:
+    st.session_state.organism = SovereignOrganism()
+
+# ============================================================
+# 4. ИНТЕРФЕЙС
+# =================================
